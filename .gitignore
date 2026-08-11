@@ -1,0 +1,4 @@
+/target
+Cargo.lock
+*.json.bak
+pomocard.v2.json
