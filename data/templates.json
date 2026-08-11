@@ -1,0 +1,55 @@
+{
+  "templates": [
+    {
+      "id": "t-ship",
+      "name": "Product launch sprint",
+      "desc": "Plan, build, and ship a feature in one focused week.",
+      "icon": "rocket",
+      "cards": [
+        { "col": "backlog", "title": "Competitive teardown", "est": 2 },
+        { "col": "backlog", "title": "Define success metrics", "est": 1 },
+        { "col": "today", "title": "Wireframe the onboarding flow", "est": 3 },
+        { "col": "today", "title": "Write the launch email", "est": 2 },
+        { "col": "doing", "title": "Build the pricing page", "est": 4 },
+        { "col": "done", "title": "Kickoff meeting notes", "est": 1 }
+      ]
+    },
+    {
+      "id": "t-thesis",
+      "name": "Thesis / dissertation week",
+      "desc": "Deep-work blocks for serious writing.",
+      "icon": "book",
+      "cards": [
+        { "col": "backlog", "title": "Literature review pass 2", "est": 4 },
+        { "col": "today", "title": "Draft chapter 3", "est": 5 },
+        { "col": "today", "title": "Edit introduction", "est": 2 },
+        { "col": "doing", "title": "Methodology section", "est": 3 },
+        { "col": "done", "title": "Outline approved", "est": 1 }
+      ]
+    },
+    {
+      "id": "t-content",
+      "name": "Content creator batch",
+      "desc": "Script, record, and edit a week of content.",
+      "icon": "film",
+      "cards": [
+        { "col": "backlog", "title": "Trend research", "est": 1 },
+        { "col": "today", "title": "Script 3 videos", "est": 3 },
+        { "col": "doing", "title": "Record intro reel", "est": 2 },
+        { "col": "done", "title": "Set up editing workspace", "est": 1 }
+      ]
+    },
+    {
+      "id": "t-freelance",
+      "name": "Freelance client wrap",
+      "desc": "Deliver the project without the chaos.",
+      "icon": "briefcase",
+      "cards": [
+        { "col": "backlog", "title": "Gather client feedback", "est": 1 },
+        { "col": "today", "title": "Final QA pass", "est": 3 },
+        { "col": "doing", "title": "Export deliverables", "est": 2 },
+        { "col": "done", "title": "Send invoice", "est": 1 }
+      ]
+    }
+  ]
+}

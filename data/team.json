@@ -1,0 +1,21 @@
+{
+  "members": [
+    { "id": "u-rhea", "name": "Rhea Kapoor", "initials": "RK", "role": "Owner", "color": "#0a0a0a", "online": true },
+    { "id": "u-marco", "name": "Marco Tan", "initials": "MT", "role": "Admin", "color": "#3a3a3a", "online": true },
+    { "id": "u-jana", "name": "Jana Soto", "initials": "JS", "role": "Member", "color": "#5a5a5a", "online": false },
+    { "id": "u-lee", "name": "Lee Okafor", "initials": "LO", "role": "Member", "color": "#7a7a7a", "online": true },
+    { "id": "u-nina", "name": "Nina Brandt", "initials": "NB", "role": "Viewer", "color": "#9a9a9a", "online": false }
+  ],
+  "activity": [
+    { "who": "Rhea Kapoor", "action": "moved", "target": "Build the pricing page", "to": "In progress", "ago": "2m" },
+    { "who": "Marco Tan", "action": "completed", "target": "Kickoff meeting notes", "to": "Done", "ago": "14m" },
+    { "who": "Lee Okafor", "action": "focused", "target": "52 min on Wireframe the onboarding flow", "to": "", "ago": "1h" },
+    { "who": "Jana Soto", "action": "commented on", "target": "Draft chapter 3", "to": "", "ago": "3h" }
+  ],
+  "workload": [
+    { "id": "u-rhea", "name": "Rhea Kapoor", "load": 11 },
+    { "id": "u-marco", "name": "Marco Tan", "load": 7 },
+    { "id": "u-jana", "name": "Jana Soto", "load": 4 },
+    { "id": "u-lee", "name": "Lee Okafor", "load": 9 }
+  ]
+}

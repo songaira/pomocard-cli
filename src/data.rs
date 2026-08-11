@@ -9,9 +9,9 @@ use std::path::Path;
 use anyhow::{Context, Result};
 use serde::Deserialize;
 
-const TEMPLATES_JSON: &str = include_str!("../../data/templates.json");
-const TEAM_JSON: &str = include_str!("../../data/team.json");
-const INSIGHTS_JSON: &str = include_str!("../../data/insights.json");
+const TEMPLATES_JSON: &str = include_str!("../data/templates.json");
+const TEAM_JSON: &str = include_str!("../data/team.json");
+const INSIGHTS_JSON: &str = include_str!("../data/insights.json");
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct TemplateCard {
