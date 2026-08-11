@@ -4,11 +4,41 @@ A monochrome [ratatui](https://ratatui.rs) terminal client for the Pomocard
 Pomodoro + Kanban workspace. It is a faithful CLI twin of the web app
 (`pomocard2`): same state shape, same agent harness, strictly black & white.
 
-## Build & run
+## Requirements
 
-This crate builds on the **GNU** toolchain
-(`stable-x86_64-pc-windows-gnu`) on Windows. You need a MinGW `bin` directory
-on `PATH` (e.g. WinLibs) plus `~/.cargo/bin`.
+- **Rust** (stable). This repo pins `channel = "stable"` via `rust-toolchain.toml`,
+  so `rustup` will fetch the right toolchain automatically on first build.
+- **A linker**:
+  - **Linux / macOS** — ships with the OS toolchain. Just `cargo build`.
+  - **Windows** — needs either the **MSVC build tools** (Visual Studio) **or**
+    **MinGW** (e.g. WinLibs). If `cargo build` complains about a missing
+    `link.exe`, install WinLibs and put its `mingw64\bin` on `PATH`, then use the
+    GNU target: `rustup target add stable-x86_64-pc-windows-gnu`.
+- No other dependencies: `ratatui`, `crossterm`, `serde`, `chrono`, `anyhow` are
+  pulled from crates.io by `cargo`. The data files (`data/*.json`) are bundled in
+  the repo, so a clone is self-contained.
+
+## Install (script)
+
+One-liners that download the latest release binary and drop it on your `PATH`
+(uses `gh` when available, so it works even on a **private** repo after
+`gh auth login`):
+
+```powershell
+# Windows (PowerShell)
+irm https://raw.githubusercontent.com/songaira/pomocard-cli/main/install.ps1 | iex
+```
+
+```sh
+# Linux / macOS
+curl -fsSL https://raw.githubusercontent.com/songaira/pomocard-cli/main/install.sh | bash
+```
+
+> The scripts fetch release assets named `pomocard.exe` (Windows) and
+> `pomocard-linux` (Linux). Upload those as assets on a GitHub Release, or build
+> from source with `cargo install --path .`.
+
+## Build & run
 
 ```powershell
 $env:Path = "C:\path\to\mingw64\bin;$env:USERPROFILE\.cargo\bin;$env:Path"
