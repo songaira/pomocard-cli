@@ -106,20 +106,38 @@ account tier is too low.
 `stats/status/streak`, `template/routine/seed`, `upgrade/subscribe`, `theme`,
 `set <key> <value>`, `open <view>`, `sync`, `export`, `help`, `quit`.
 
-## Free AI (BYOK via OpenRouter)
+## Free AI (BYOK, multi-provider)
 
 The agent harness is **local by default** — no key, $0, works offline. To get real
-LLM understanding, paste a free OpenRouter key; the default model is a `:free` one,
-so the free tier costs **nobody** anything:
+LLM understanding, paste your own key for one of the supported providers. The model
+only ever sees the sentence you type — your state never leaves the app except to the
+provider's own API. No key → the built-in rule-based parser runs unchanged.
+
+Supported providers:
+
+| `set provider` | endpoint | key format | default model |
+| --- | --- | --- | --- |
+| `openrouter` | `openrouter.ai/api/v1` | `sk-or-...` | `qwen/qwen3-8b:free` |
+| `openai` | `api.openai.com/v1` | `sk-...` | `gpt-4o-mini` |
+| `anthropic` | `api.anthropic.com/v1` | `sk-ant-...` | `claude-3-5-haiku-latest` |
+| `google` | `generativelanguage.googleapis.com` | `AIza...` | `gemini-2.0-flash` |
+| `xai` (alias `spacexai`) | `api.x.ai/v1` | `xai-...` | `grok-3-mini` |
+
+Switch provider, then set its key and (optionally) a model:
 
 ```
-set key sk-or-your-openrouter-key
-set model qwen/qwen3-8b:free      # any OpenRouter model id
-# or: $env:OPENROUTER_API_KEY = "sk-..."   (read at launch)
+set provider openai
+set key sk-your-openai-key
+set model gpt-4o-mini
 ```
 
-With a key set, natural-language input is translated by the model into the same
-local commands (e.g. `add "X" to today`), then executed on your board. The model
-only ever sees the sentence you type — your state never leaves the app except to
-OpenRouter's API. No key → the built-in rule-based parser runs unchanged.
+Each provider keeps its own key slot (`set key` writes to the *currently selected*
+provider), so you can configure several and flip between them. `set model` with no
+value resets to that provider's default. The OpenRouter key can also be supplied via
+the `OPENROUTER_API_KEY` env var (read at launch).
+
+With a key set, natural-language input is translated by the model into the same local
+commands (e.g. `add "X" to today`), then executed on your board. The AI Coach view
+(`Ask`/free-text questions) replies with the real model output instead of the bundled
+offline coach lines.
 

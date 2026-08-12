@@ -460,7 +460,15 @@ impl App {
         let mut produced: Vec<Entry> = Vec::new();
         produced.push(Entry::You(trimmed.to_string()));
 
-        let cmds = self.resolve_cmds(trimmed);
+        // Route free-form questions straight to the AI Coach (chat) instead of
+        // command translation, so the agent actually talks back.
+        let cmds = if agent::is_question(trimmed) {
+            vec![Cmd::Ask {
+                text: trimmed.to_string(),
+            }]
+        } else {
+            self.resolve_cmds(trimmed)
+        };
         let mut asked = false;
         for cmd in cmds {
             if matches!(cmd, Cmd::Ask { .. }) {
@@ -479,23 +487,31 @@ impl App {
         produced
     }
 
-    /// Resolve a prompt into commands. With an OpenRouter key set, a `:free`
+    /// Resolve a prompt into commands. With a provider key set, the configured
     /// model translates the request into local commands; otherwise we fall back
     /// to the built-in rule-based parser.
-    fn resolve_cmds(&self, line: &str) -> Vec<Cmd> {
-        if let Some(key) = &self.state.settings.openrouter_key {
+    fn resolve_cmds(&mut self, line: &str) -> Vec<Cmd> {
+        if let Some(key) = self.state.settings.resolve_key() {
             if !key.trim().is_empty() {
-                if let Ok(text) = crate::llm::complete(key, &self.state.settings.model, line) {
-                    let mut cmds = Vec::new();
-                    for l in text.lines() {
-                        let l = l.trim();
-                        if !l.is_empty() {
-                            cmds.extend(agent::parse(l));
+                match crate::llm::complete(
+                    &key,
+                    &self.state.settings.provider,
+                    &self.state.settings.model,
+                    line,
+                ) {
+                    Ok(text) => {
+                        let mut cmds = Vec::new();
+                        for l in text.lines() {
+                            let l = l.trim();
+                            if !l.is_empty() {
+                                cmds.extend(agent::parse(l));
+                            }
+                        }
+                        if !cmds.is_empty() {
+                            return cmds;
                         }
                     }
-                    if !cmds.is_empty() {
-                        return cmds;
-                    }
+                    Err(err) => self.toast("AI translate failed", format!("{err:?}")),
                 }
             }
         }
@@ -870,8 +886,38 @@ impl App {
                 if !text.trim().is_empty() {
                     self.coach_feed.push((true, text.clone()));
                 }
+
                 let n = (self.coach_feed.len() + self.tick_count as usize) % 5;
-                let reply = self.data.coach_line(n);
+
+                // Prefer a real reply from the configured provider's model. The
+                // hardcoded coach lines are only the offline fallback when no
+                // key/model is set (or the API call fails).
+                let reply = if let Some(key) = self.state.settings.resolve_key() {
+                    if !key.trim().is_empty() && !text.trim().is_empty() {
+                        match crate::llm::chat(
+                            &key,
+                            &self.state.settings.provider,
+                            &self.state.settings.model,
+                            &text,
+                        ) {
+                            Ok(r) => r.trim().to_string(),
+                            Err(err) => {
+                                // model id / network hiccup — surface it in the
+                                // reply (and a toast) instead of failing silently.
+                                self.toast(
+                                    "AI Coach unavailable",
+                                    format!("fell back to offline line ({err:?})"),
+                                );
+                                format!("[AI offline — {err}] {}", self.data.coach_line(n))
+                            }
+                        }
+                    } else {
+                        self.data.coach_line(n)
+                    }
+                } else {
+                    self.data.coach_line(n)
+                };
+
                 let insight = self
                     .data
                     .insights
@@ -880,7 +926,15 @@ impl App {
                     .cloned()
                     .unwrap_or_default();
                 let full = if self.state.tier_ok("pro") {
-                    format!("{reply} {insight}")
+                    if insight.is_empty() {
+                        reply
+                    } else {
+                        format!("{reply} {insight}")
+                    }
+                } else if self.state.settings.has_key() {
+                    // BYOK users already have a real model wired up — let the
+                    // reply stand on its own instead of nagging about Pro.
+                    reply
                 } else {
                     format!("{reply} (AI Coach insights are a Pro feature — try `upgrade pro`.)")
                 };
@@ -978,26 +1032,42 @@ impl App {
             }
             "key" | "openrouter" | "apikey" => {
                 let v = value.trim();
-                self.state.settings.openrouter_key = if v.is_empty() || v == "off" || v == "none" || v == "clear" {
-                    None
-                } else {
-                    Some(v.to_string())
-                };
+                self.state.settings.set_key_for_provider(v.to_string());
                 ToolCall::new("pomocard.settings")
+                    .kv("provider", self.state.settings.provider.clone())
                     .kv(
-                        "openrouter_key",
-                        if self.state.settings.openrouter_key.is_some() { "set (hidden)" } else { "cleared" },
+                        "key",
+                        if self.state.settings.has_key() { "set (hidden)" } else { "cleared" },
                     )
                     .kv("result", "saved")
             }
             "model" => {
                 let v = value.trim();
                 self.state.settings.model = if v.is_empty() || v == "off" || v == "none" {
-                    crate::state::default_model()
+                    crate::llm::Provider::parse(&self.state.settings.provider)
+                        .default_model()
+                        .to_string()
                 } else {
                     v.to_string()
                 };
                 ToolCall::new("pomocard.settings")
+                    .kv("provider", self.state.settings.provider.clone())
+                    .kv("model", self.state.settings.model.clone())
+                    .kv("result", "saved")
+            }
+            "provider" => {
+                let v = value.trim().to_lowercase();
+                self.state.settings.provider = if v.is_empty() {
+                    crate::state::default_provider().to_string()
+                } else {
+                    v
+                };
+                // reset the model to that provider's default so it works OOTB
+                self.state.settings.model = crate::llm::Provider::parse(&self.state.settings.provider)
+                    .default_model()
+                    .to_string();
+                ToolCall::new("pomocard.settings")
+                    .kv("provider", self.state.settings.provider.clone())
                     .kv("model", self.state.settings.model.clone())
                     .kv("result", "saved")
             }
@@ -1012,7 +1082,7 @@ impl App {
             }
             _ => ToolCall::new("pomocard.settings")
                 .kv("key", key.to_string())
-                .kv("known", "focus · short · long · auto · chime · ambient · theme · plan")
+                .kv("known", "focus · short · long · auto · chime · ambient · theme · plan · provider · key · model")
                 .kv("error", "unknown setting")
                 .failed(),
         }

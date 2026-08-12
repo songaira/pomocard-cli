@@ -568,6 +568,44 @@ pub fn parse_clause(raw: &str) -> Cmd {
     }
 }
 
+/// Syntactic check: does `text` look like a free-form question for the AI
+/// Coach rather than an actionable command? Used to route input straight to
+/// chat instead of command translation.
+///
+/// Signals a question when it ends with `?` or starts with a WH-word, *unless*
+/// it also contains a command verb (e.g. "can you add a task?" is an
+/// instruction, not a question). Cheap, deterministic, works offline.
+pub fn is_question(text: &str) -> bool {
+    let lower = text.trim().to_lowercase();
+    if lower.is_empty() {
+        return false;
+    }
+
+    let wh = [
+        "why", "how", "what", "when", "where", "who", "which", "whose", "whom",
+    ];
+    let starts_wh = wh.iter().any(|w| {
+        lower == *w || lower.starts_with(&format!("{w} ")) || lower.starts_with(&format!("{w}?"))
+    });
+    let has_q = lower.ends_with('?') || lower.contains('?');
+    if !starts_wh && !has_q {
+        return false;
+    }
+
+    let cmd_verbs = [
+        "add", "create", "capture", "queue", "drop", "put", "log", "move", "push", "send",
+        "shift", "promote", "finish", "complete", "ship", "archive", "mark", "delete",
+        "remove", "trash", "kill", "pin", "rename", "retitle", "call", "estimate", "start",
+        "begin", "resume", "pause", "reset", "skip", "break", "clear", "stats", "status",
+        "open", "board", "template", "routine", "seed", "upgrade", "unlock", "subscribe",
+        "theme", "set ", "sync", "export",
+    ];
+    if cmd_verbs.iter().any(|v| lower.contains(v)) {
+        return false;
+    }
+    true
+}
+
 fn view_name(lower: &str) -> Option<String> {
     for name in [
         "agent",

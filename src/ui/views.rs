@@ -781,11 +781,13 @@ pub fn settings(f: &mut Frame, app: &App, area: Rect, th: &Theme) {
             th,
         ),
         kv_line("state file", app.path.display().to_string(), th),
+        kv_line("provider", s.provider.clone(), th),
         kv_line("ai model", s.model.clone(), th),
         kv_line(
-            "openrouter key",
-            match &s.openrouter_key {
+            "api key",
+            match s.resolve_key() {
                 None => "not set (local only)".to_string(),
+                Some(k) if k.trim().is_empty() => "not set (local only)".to_string(),
                 Some(k) if k.len() <= 8 => "set (hidden)".to_string(),
                 Some(k) => format!("{}…{}", &k[..4], &k[k.len() - 4..]),
             },

@@ -64,6 +64,61 @@ pub struct Settings {
     /// nobody anything.
     #[serde(default = "d_model")]
     pub model: String,
+    /// Which provider the active key/model talk to. One of:
+    /// `openrouter` · `openai` · `anthropic` · `google` · `xai` (alias `spacexai`).
+    /// Stored locally; never sent anywhere except the provider's own API.
+    #[serde(default = "d_provider")]
+    pub provider: String,
+    /// OpenAI API key (`sk-...`). Used when `provider = openai`.
+    #[serde(default)]
+    pub openai_key: Option<String>,
+    /// Anthropic API key (`sk-ant-...`). Used when `provider = anthropic`.
+    #[serde(default)]
+    pub anthropic_key: Option<String>,
+    /// Google Gemini API key (`AIza...`). Used when `provider = google`.
+    #[serde(default)]
+    pub google_key: Option<String>,
+    /// SpaceXAI (formerly xAI) API key (`xai-...`). Used when `provider = xai`.
+    #[serde(default)]
+    pub xai_key: Option<String>,
+}
+
+impl Settings {
+    /// The key for the currently selected provider, if any.
+    pub fn resolve_key(&self) -> Option<String> {
+        let k = match self.provider.as_str() {
+            "openai" => self.openai_key.as_ref(),
+            "anthropic" => self.anthropic_key.as_ref(),
+            "google" => self.google_key.as_ref(),
+            "xai" | "spacexai" => self.xai_key.as_ref(),
+            _ => self.openrouter_key.as_ref(),
+        };
+        k.cloned()
+    }
+
+    /// Set/clear the key for the currently selected provider. An empty value
+    /// clears it.
+    pub fn set_key_for_provider(&mut self, value: String) {
+        let v = if value.trim().is_empty() {
+            None
+        } else {
+            Some(value)
+        };
+        match self.provider.as_str() {
+            "openai" => self.openai_key = v,
+            "anthropic" => self.anthropic_key = v,
+            "google" => self.google_key = v,
+            "xai" | "spacexai" => self.xai_key = v,
+            _ => self.openrouter_key = v,
+        }
+    }
+
+    /// `true` when a non-empty key is configured for the active provider.
+    pub fn has_key(&self) -> bool {
+        self.resolve_key()
+            .map(|k| !k.trim().is_empty())
+            .unwrap_or(false)
+    }
 }
 
 fn d_focus() -> u32 {
@@ -85,6 +140,10 @@ fn d_model() -> String {
     "qwen/qwen3-8b:free".into()
 }
 
+fn d_provider() -> String {
+    "openrouter".into()
+}
+
 impl Default for Settings {
     fn default() -> Self {
         Settings {
@@ -96,13 +155,18 @@ impl Default for Settings {
             sound_theme: "classic".into(),
             openrouter_key: None,
             model: d_model(),
+            provider: d_provider(),
+            openai_key: None,
+            anthropic_key: None,
+            google_key: None,
+            xai_key: None,
         }
     }
 }
 
-/// The default (free) OpenRouter model id.
-pub fn default_model() -> String {
-    d_model()
+/// The default provider (`openrouter`), kept for `set provider` reset logic.
+pub fn default_provider() -> &'static str {
+    "openrouter"
 }
 
 /* ---------------- stats ---------------- */
