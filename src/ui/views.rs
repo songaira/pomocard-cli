@@ -781,6 +781,16 @@ pub fn settings(f: &mut Frame, app: &App, area: Rect, th: &Theme) {
             th,
         ),
         kv_line("state file", app.path.display().to_string(), th),
+        kv_line("ai model", s.model.clone(), th),
+        kv_line(
+            "openrouter key",
+            match &s.openrouter_key {
+                None => "not set (local only)".to_string(),
+                Some(k) if k.len() <= 8 => "set (hidden)".to_string(),
+                Some(k) => format!("{}…{}", &k[..4], &k[k.len() - 4..]),
+            },
+            th,
+        ),
         kv_line(
             "ambient",
             app.state
@@ -799,6 +809,7 @@ pub fn settings(f: &mut Frame, app: &App, area: Rect, th: &Theme) {
         ),
         Line::raw(""),
         Line::styled(" u cycles the demo plan · sync writes the JSON now".to_string(), th.dim()),
+        Line::styled(" ai: set key sk-or-... · set model qwen/qwen3-8b:free".to_string(), th.faint()),
     ];
     lines.truncate(inner.height as usize);
     f.render_widget(Paragraph::new(lines).wrap(Wrap { trim: false }), inner);

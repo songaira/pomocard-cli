@@ -163,7 +163,14 @@ pub struct App {
 
 impl App {
     pub fn new(path: PathBuf, data: Data) -> Result<App> {
-        let state = State::load(&path)?;
+        let mut state = State::load(&path)?;
+        if state.settings.openrouter_key.is_none() {
+            if let Ok(k) = std::env::var("OPENROUTER_API_KEY") {
+                if !k.trim().is_empty() {
+                    state.settings.openrouter_key = Some(k);
+                }
+            }
+        }
         let timer = Timer::new(&state.settings);
         let session_id = short_session_id();
         let cwd = pretty_cwd();
@@ -453,7 +460,7 @@ impl App {
         let mut produced: Vec<Entry> = Vec::new();
         produced.push(Entry::You(trimmed.to_string()));
 
-        let cmds = agent::parse(trimmed);
+        let cmds = self.resolve_cmds(trimmed);
         let mut asked = false;
         for cmd in cmds {
             if matches!(cmd, Cmd::Ask { .. }) {
@@ -470,6 +477,29 @@ impl App {
         self.award();
         self.save();
         produced
+    }
+
+    /// Resolve a prompt into commands. With an OpenRouter key set, a `:free`
+    /// model translates the request into local commands; otherwise we fall back
+    /// to the built-in rule-based parser.
+    fn resolve_cmds(&self, line: &str) -> Vec<Cmd> {
+        if let Some(key) = &self.state.settings.openrouter_key {
+            if !key.trim().is_empty() {
+                if let Ok(text) = crate::llm::complete(key, &self.state.settings.model, line) {
+                    let mut cmds = Vec::new();
+                    for l in text.lines() {
+                        let l = l.trim();
+                        if !l.is_empty() {
+                            cmds.extend(agent::parse(l));
+                        }
+                    }
+                    if !cmds.is_empty() {
+                        return cmds;
+                    }
+                }
+            }
+        }
+        agent::parse(line)
     }
 
     pub fn exec_cmd(&mut self, cmd: Cmd) -> Vec<Entry> {
@@ -945,6 +975,31 @@ impl App {
             "theme" => {
                 self.state.theme = if v == "light" { "light".into() } else { "dark".into() };
                 ToolCall::new("pomocard.theme").kv("theme", self.state.theme.clone()).kv("result", "applied")
+            }
+            "key" | "openrouter" | "apikey" => {
+                let v = value.trim();
+                self.state.settings.openrouter_key = if v.is_empty() || v == "off" || v == "none" || v == "clear" {
+                    None
+                } else {
+                    Some(v.to_string())
+                };
+                ToolCall::new("pomocard.settings")
+                    .kv(
+                        "openrouter_key",
+                        if self.state.settings.openrouter_key.is_some() { "set (hidden)" } else { "cleared" },
+                    )
+                    .kv("result", "saved")
+            }
+            "model" => {
+                let v = value.trim();
+                self.state.settings.model = if v.is_empty() || v == "off" || v == "none" {
+                    crate::state::default_model()
+                } else {
+                    v.to_string()
+                };
+                ToolCall::new("pomocard.settings")
+                    .kv("model", self.state.settings.model.clone())
+                    .kv("result", "saved")
             }
             "plan" | "tier" => {
                 let tier = match v.as_str() {

@@ -6,6 +6,7 @@
 mod agent;
 mod app;
 mod data;
+mod llm;
 mod input;
 mod state;
 mod theme;

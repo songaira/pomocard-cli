@@ -55,6 +55,15 @@ pub struct Settings {
     pub sound: bool,
     #[serde(default = "d_chime")]
     pub sound_theme: String,
+    /// Bring-your-own-key OpenRouter token. When set, natural-language input is
+    /// translated by a model (see `llm`). Stored locally; never sent anywhere
+    /// except OpenRouter's API on each request.
+    #[serde(default)]
+    pub openrouter_key: Option<String>,
+    /// OpenRouter model id. Defaults to a `:free` model so the free tier costs
+    /// nobody anything.
+    #[serde(default = "d_model")]
+    pub model: String,
 }
 
 fn d_focus() -> u32 {
@@ -72,6 +81,9 @@ fn d_true() -> bool {
 fn d_chime() -> String {
     "classic".into()
 }
+fn d_model() -> String {
+    "qwen/qwen3-8b:free".into()
+}
 
 impl Default for Settings {
     fn default() -> Self {
@@ -82,8 +94,15 @@ impl Default for Settings {
             auto: false,
             sound: true,
             sound_theme: "classic".into(),
+            openrouter_key: None,
+            model: d_model(),
         }
     }
+}
+
+/// The default (free) OpenRouter model id.
+pub fn default_model() -> String {
+    d_model()
 }
 
 /* ---------------- stats ---------------- */

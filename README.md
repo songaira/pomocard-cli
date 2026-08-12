@@ -105,3 +105,21 @@ account tier is too low.
 `delete/remove`, `pin`, `rename`, `estimate`, `clear done`, `list/board`,
 `stats/status/streak`, `template/routine/seed`, `upgrade/subscribe`, `theme`,
 `set <key> <value>`, `open <view>`, `sync`, `export`, `help`, `quit`.
+
+## Free AI (BYOK via OpenRouter)
+
+The agent harness is **local by default** — no key, $0, works offline. To get real
+LLM understanding, paste a free OpenRouter key; the default model is a `:free` one,
+so the free tier costs **nobody** anything:
+
+```
+set key sk-or-your-openrouter-key
+set model qwen/qwen3-8b:free      # any OpenRouter model id
+# or: $env:OPENROUTER_API_KEY = "sk-..."   (read at launch)
+```
+
+With a key set, natural-language input is translated by the model into the same
+local commands (e.g. `add "X" to today`), then executed on your board. The model
+only ever sees the sentence you type — your state never leaves the app except to
+OpenRouter's API. No key → the built-in rule-based parser runs unchanged.
+
