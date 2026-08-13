@@ -69,7 +69,6 @@ pub enum Cmd {
     ListBoard,
     Stats,
     Template { name: String },
-    Upgrade { tier: String },
     Theme { theme: String },
     Set { key: String, value: String },
     View { name: String },
@@ -374,10 +373,14 @@ pub fn parse_clause(raw: &str) -> Cmd {
     // settings: "set focus 50", "set auto on", "set chime pad"
     if head == "set" || lower.starts_with("change ") {
         let parts: Vec<&str> = lower.split_whitespace().collect();
+        // The value (e.g. an API key or model id) is case-sensitive, so pull it
+        // from the original-cased text — NOT from `lower`, which would mangle
+        // mixed-case keys like Google's `AIza…` and break auth.
+        let parts_orig: Vec<&str> = text.split_whitespace().collect();
         if parts.len() >= 3 {
             return Cmd::Set {
                 key: parts[1].to_string(),
-                value: parts[2..].join(" "),
+                value: parts_orig[2..].join(" "),
             };
         }
     }
@@ -395,15 +398,9 @@ pub fn parse_clause(raw: &str) -> Cmd {
         };
     }
 
-    if any_word(&lower, &["upgrade", "unlock", "subscribe"]) {
-        let tier = if lower.contains("team") { "team" } else { "pro" };
-        return Cmd::Upgrade {
-            tier: tier.to_string(),
-        };
-    }
     if any_word(&lower, &["downgrade", "cancel"]) && !any_word(&lower, &["card"]) {
-        return Cmd::Upgrade {
-            tier: "free".to_string(),
+        return Cmd::Ask {
+            text: "Subscriptions live in the paid web build — the CLI is free and local.".to_string(),
         };
     }
 
@@ -597,8 +594,7 @@ pub fn is_question(text: &str) -> bool {
         "shift", "promote", "finish", "complete", "ship", "archive", "mark", "delete",
         "remove", "trash", "kill", "pin", "rename", "retitle", "call", "estimate", "start",
         "begin", "resume", "pause", "reset", "skip", "break", "clear", "stats", "status",
-        "open", "board", "template", "routine", "seed", "upgrade", "unlock", "subscribe",
-        "theme", "set ", "sync", "export",
+        "open", "board", "template", "routine", "seed", "theme", "set ", "sync", "export",
     ];
     if cmd_verbs.iter().any(|v| lower.contains(v)) {
         return false;
@@ -702,6 +698,24 @@ mod tests {
                 minutes: None
             }
         );
+    }
+
+    #[test]
+    fn set_key_preserves_case() {
+        match parse_clause("set key AIzaSyMixedCaseKEY123_-abc") {
+            Cmd::Set { key, value } => {
+                assert_eq!(key, "key");
+                assert_eq!(value, "AIzaSyMixedCaseKEY123_-abc");
+            }
+            other => panic!("expected Set, got {other:?}"),
+        }
+        match parse_clause("set model Claude-3-5-Haiku-Latest") {
+            Cmd::Set { key, value } => {
+                assert_eq!(key, "model");
+                assert_eq!(value, "Claude-3-5-Haiku-Latest");
+            }
+            other => panic!("expected Set, got {other:?}"),
+        }
     }
 
     #[test]

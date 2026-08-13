@@ -211,14 +211,6 @@ fn normal_key(app: &mut App, key: KeyEvent, _ctrl: bool) {
         KeyCode::Char('T') => {
             app.exec_line("theme toggle");
         }
-        KeyCode::Char('u') => {
-            let next = match app.state.tier.as_str() {
-                "free" => "pro",
-                "pro" => "team",
-                _ => "free",
-            };
-            app.exec_line(&format!("upgrade {next}"));
-        }
         KeyCode::PageUp => scroll(app, -5),
         KeyCode::PageDown => scroll(app, 5),
         KeyCode::Char('g') => {

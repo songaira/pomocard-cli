@@ -14,6 +14,12 @@
 use anyhow::{Context, Result};
 use std::process::Command;
 
+/// Hard ceiling on generated tokens per request. Keeps a misbehaving model
+/// (or a chatty prompt) from running away and torching your provider's
+/// tokens-per-minute quota. The local parser only needs a handful of short
+/// command lines, and the coach reply is 1-3 sentences, so 1024 is plenty.
+const MAX_TOKENS: u32 = 1024;
+
 const COMMAND_SYSTEM: &str = "You are the Pomocard agent, a Pomodoro + Kanban CLI. \
 Translate the user's request into one or more Pomocard natural-language commands, \
 one per line, with NO extra text, numbering, or markdown. Each line must be a \
@@ -79,6 +85,10 @@ impl Provider {
         user: &str,
         temperature: f32,
     ) -> (String, String, Vec<(String, String)>) {
+        // OpenRouter keeps the full provider/model id; the direct providers want a
+        // bare model id, so drop any provider/ prefix (otherwise, for Google, the
+        // slash corrupts the request URL path).
+        let bare = model.rsplit('/').next().unwrap_or(model);
         match self {
             Provider::OpenRouter | Provider::OpenAI | Provider::SpaceXAI => {
                 let endpoint = match self {
@@ -87,25 +97,28 @@ impl Provider {
                     Provider::SpaceXAI => "https://api.x.ai/v1/chat/completions",
                     _ => unreachable!(),
                 };
+                let m = match self {
+                    Provider::OpenRouter => model,
+                    _ => bare,
+                };
                 let body = serde_json::json!({
-                    "model": model,
+                    "model": m,
                     "messages": [
                         { "role": "system", "content": system },
                         { "role": "user", "content": user }
                     ],
                     "temperature": temperature,
-                    // Cap tokens so free-tier accounts (which can only afford a
-                    // few thousand) don't get rejected for requesting 65k.
-                    "max_tokens": 1024
+                    // Cap tokens so a runaway model can't torch the TPM quota.
+                    "max_tokens": MAX_TOKENS
                 })
                 .to_string();
                 (endpoint.to_string(), body, Vec::new())
             }
             Provider::Anthropic => {
                 let body = serde_json::json!({
-                    "model": model,
+                    "model": bare,
                     "system": system,
-                    "max_tokens": 1024,
+                    "max_tokens": MAX_TOKENS,
                     "temperature": temperature,
                     "messages": [ { "role": "user", "content": user } ]
                 })
@@ -119,12 +132,15 @@ impl Provider {
             Provider::Google => {
                 let url = format!(
                     "https://generativelanguage.googleapis.com/v1beta/models/{}:generateContent",
-                    model
+                    bare
                 );
                 let body = serde_json::json!({
                     "systemInstruction": { "parts": [ { "text": system } ] },
                     "contents": [ { "role": "user", "parts": [ { "text": user } ] } ],
-                    "generationConfig": { "temperature": temperature }
+                    "generationConfig": {
+                        "temperature": temperature,
+                        "maxOutputTokens": MAX_TOKENS
+                    }
                 })
                 .to_string();
                 (url, body, Vec::new())
@@ -134,6 +150,12 @@ impl Provider {
 
     /// Pull the assistant text out of a provider response, surfacing API errors.
     fn parse_response(&self, text: &str) -> Result<String> {
+        if text.trim().is_empty() {
+            anyhow::bail!(
+                "{} returned an empty response (check the API key, model id, and network)",
+                self.name()
+            );
+        }
         let v: serde_json::Value = serde_json::from_str(text)
             .with_context(|| format!("could not parse {} response: {text}", self.name()))?;
         if let Some(err) = v.get("error") {
@@ -170,6 +192,26 @@ impl Provider {
     }
 }
 
+    /// Percent-encode a value for a URL query parameter. Google receives its
+    /// API key in the query string, so any non-unreserved character must be
+    /// encoded or the key is rejected as invalid.
+    fn url_encode(s: &str) -> String {
+        let mut out = String::with_capacity(s.len());
+        for b in s.bytes() {
+            match b {
+                b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                    out.push(b as char);
+                }
+                _ => {
+                    out.push('%');
+                    out.push(char::from_digit((b >> 4) as u32, 16).unwrap().to_ascii_uppercase());
+                    out.push(char::from_digit((b & 0xf) as u32, 16).unwrap().to_ascii_uppercase());
+                }
+            }
+        }
+        out
+    }
+
 /// Run a completion against the selected provider and return the assistant text.
 fn request(
     provider: &Provider,
@@ -183,7 +225,7 @@ fn request(
     let key = key.trim();
     match provider {
         // Google authenticates via a query parameter, not a header.
-        Provider::Google => url = format!("{}?key={}", url, key),
+        Provider::Google => url = format!("{}?key={}", url, url_encode(key)),
         Provider::Anthropic => headers.push(("x-api-key".to_string(), key.to_string())),
         _ => headers.push(("Authorization".to_string(), format!("Bearer {key}"))),
     }

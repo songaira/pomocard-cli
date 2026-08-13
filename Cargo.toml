@@ -1,8 +1,8 @@
 [package]
 name = "pomocard-cli"
-version = "0.1.0"
-edition = "2021"
-rust-version = "1.74"
+version = "0.3.0"
+edition = "2024"
+rust-version = "1.85"
 description = "Pomocard TUI — a strictly monochrome terminal wrapper around the Pomocard focus workspace (Pomodoro + Kanban), built with ratatui."
 license = "MIT"
 readme = "README.md"
@@ -23,3 +23,4 @@ serde_json = "1"
 lto = true
 strip = true
 opt-level = 3
+

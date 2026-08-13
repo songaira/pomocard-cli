@@ -23,7 +23,7 @@ use crossterm::event::{self, Event};
 use crate::agent::Entry;
 use crate::app::App;
 use crate::data::Data;
-use crate::state::{col_label, tier_label, COLS};
+use crate::state::{col_label, COLS};
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
@@ -208,9 +208,8 @@ fn print_board(app: &App) {
         println!();
     }
     println!(
-        "  {} · {} plan · {}\n",
+        "  {} · {}\n",
         app.headline(),
-        tier_label(&app.state.tier),
         app.path.display()
     );
 }
@@ -236,6 +235,7 @@ fn event_loop(terminal: &mut ratatui::DefaultTerminal, app: &mut App) -> Result<
 
     loop {
         terminal.draw(|f| ui::draw(f, app))?;
+        app.poll_pending();
 
         if app.bell {
             app.bell = false;

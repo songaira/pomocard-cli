@@ -1,6 +1,7 @@
 //! Application state machine shared by the TUI and the headless `exec` mode.
 
 use std::path::PathBuf;
+use std::sync::mpsc;
 use std::time::Instant;
 
 use anyhow::Result;
@@ -8,8 +9,7 @@ use anyhow::Result;
 use crate::agent::{self, Cmd, Entry, ToolCall};
 use crate::data::Data;
 use crate::state::{
-    col_label, fmt_minutes, normalize_col, tier_label, tier_price, Account, Achievement, State,
-    COLS,
+    col_label, fmt_minutes, normalize_col, Achievement, State, COLS,
 };
 use crate::timer::{Mode, Timer};
 
@@ -53,14 +53,6 @@ impl View {
     }
 
     /// Tier required, mirroring VIEW_TIER in plus.js.
-    pub fn tier(self) -> Option<&'static str> {
-        match self {
-            View::Analytics | View::Coach | View::Templates => Some("pro"),
-            View::Team | View::Billing => Some("team"),
-            _ => None,
-        }
-    }
-
     pub fn slug(self) -> &'static str {
         match self {
             View::Agent => "agent",
@@ -111,13 +103,11 @@ struct Ach {
     desc: &'static str,
 }
 
-const ACHS: [Ach; 7] = [
+const ACHS: [Ach; 5] = [
     Ach { id: "first", name: "First focus", desc: "Complete a session" },
     Ach { id: "streak3", name: "On a roll", desc: "3-day streak" },
     Ach { id: "ten", name: "In the zone", desc: "10 sessions" },
     Ach { id: "cycle", name: "Full cycle", desc: "4 sessions in a row" },
-    Ach { id: "pro", name: "Pro", desc: "Upgraded to Pro" },
-    Ach { id: "team", name: "Team player", desc: "Joined a team" },
     Ach { id: "tpl", name: "Template", desc: "Loaded a routine" },
 ];
 
@@ -159,6 +149,18 @@ pub struct App {
     pub tick_count: u64,
     /// `true` for one-shot CLI runs, where no clock is actually ticking.
     pub headless: bool,
+    /// `true` while an async LLM call is in flight (drives the spinner).
+    pub thinking: bool,
+    /// In-flight LLM request, resolved each tick by `poll_pending`.
+    pub pending: Option<PendingLlm>,
+}
+
+/// A background LLM request: the receiving end of the channel the worker
+/// thread sends its result on, plus enough context to finalize the turn.
+pub struct PendingLlm {
+    pub rx: mpsc::Receiver<Result<String, String>>,
+    pub line: String,
+    pub is_question: bool,
 }
 
 impl App {
@@ -205,6 +207,8 @@ impl App {
             used_template: false,
             tick_count: 0,
             headless: false,
+            thinking: false,
+            pending: None,
         };
         app.transcript.push(Entry::Agent(format!(
             "Pomocard agent ready. {} · type a command, or press ? for keys.",
@@ -318,8 +322,6 @@ impl App {
                 "streak3" => self.state.stats.streak >= 3,
                 "ten" => self.state.totals.sessions >= 10,
                 "cycle" => self.cycle_done,
-                "pro" => self.state.tier != "free",
-                "team" => self.state.tier == "team",
                 "tpl" => self.used_template,
                 _ => false,
             };
@@ -356,24 +358,7 @@ impl App {
     /* ---------------- navigation ---------------- */
 
     pub fn go(&mut self, view: View) {
-        if let Some(need) = view.tier() {
-            if !self.state.tier_ok(need) {
-                self.view = view; // render the locked overlay, like the web paywall
-                self.toast(
-                    format!("{} feature", tier_label(need)),
-                    format!("Upgrade to {} ({})", tier_label(need), tier_price(need)),
-                );
-                return;
-            }
-        }
         self.view = view;
-    }
-
-    pub fn locked(&self, view: View) -> Option<&'static str> {
-        match view.tier() {
-            Some(need) if !self.state.tier_ok(need) => Some(need),
-            _ => None,
-        }
     }
 
     pub fn cycle_view(&mut self, delta: i32) {
@@ -409,16 +394,14 @@ impl App {
             PaletteAction { label: "Reset timer".into(), hint: "r".into(), cmd: "reset".into() },
             PaletteAction { label: "Skip to next session".into(), hint: "n".into(), cmd: "skip".into() },
             PaletteAction { label: "Go to Board".into(), hint: "2".into(), cmd: "open board".into() },
-            PaletteAction { label: "Go to Analytics".into(), hint: "pro".into(), cmd: "open analytics".into() },
-            PaletteAction { label: "Go to AI Coach".into(), hint: "pro".into(), cmd: "open coach".into() },
-            PaletteAction { label: "Go to Templates".into(), hint: "pro".into(), cmd: "open templates".into() },
-            PaletteAction { label: "Go to Team console".into(), hint: "team".into(), cmd: "open team".into() },
-            PaletteAction { label: "Go to Billing".into(), hint: "team".into(), cmd: "open billing".into() },
+            PaletteAction { label: "Go to Analytics".into(), hint: "3".into(), cmd: "open analytics".into() },
+            PaletteAction { label: "Go to AI Coach".into(), hint: "4".into(), cmd: "open coach".into() },
+            PaletteAction { label: "Go to Templates".into(), hint: "5".into(), cmd: "open templates".into() },
+            PaletteAction { label: "Go to Team console".into(), hint: "6".into(), cmd: "open team".into() },
+            PaletteAction { label: "Go to Billing".into(), hint: "7".into(), cmd: "open billing".into() },
             PaletteAction { label: "Go to Settings".into(), hint: "8".into(), cmd: "open settings".into() },
             PaletteAction { label: "Toggle dark mode".into(), hint: "T".into(), cmd: "theme toggle".into() },
             PaletteAction { label: "Clear the Done column".into(), hint: "".into(), cmd: "clear done".into() },
-            PaletteAction { label: "Upgrade to Pro".into(), hint: "$6/mo".into(), cmd: "upgrade pro".into() },
-            PaletteAction { label: "Upgrade to Team".into(), hint: "$12/user".into(), cmd: "upgrade team".into() },
             PaletteAction { label: "Sync now".into(), hint: "".into(), cmd: "sync".into() },
         ];
         for col in COLS {
@@ -452,23 +435,52 @@ impl App {
     /* ---------------- command execution ---------------- */
 
     /// Runs a whole prompt line: `You` turn, tool calls, `Agent` summary.
+    ///
+    /// Headless (`exec`/`status`) runs fully synchronously and returns the
+    /// entries for printing. In the TUI it kicks off a live, non-blocking turn
+    /// so the `▸ thinking…` step shows immediately instead of after the (often
+    /// multi-second) LLM round-trip.
     pub fn exec_line(&mut self, line: &str) -> Vec<Entry> {
         let trimmed = line.trim();
         if trimmed.is_empty() {
             return Vec::new();
         }
+        if self.headless {
+            self.exec_line_blocking(trimmed)
+        } else {
+            self.exec_line_live(trimmed);
+            Vec::new()
+        }
+    }
+
+    /// Synchronous, headless execution (returns entries for printing).
+    fn exec_line_blocking(&mut self, trimmed: &str) -> Vec<Entry> {
         let mut produced: Vec<Entry> = Vec::new();
         produced.push(Entry::You(trimmed.to_string()));
 
-        // Route free-form questions straight to the AI Coach (chat) instead of
-        // command translation, so the agent actually talks back.
-        let cmds = if agent::is_question(trimmed) {
-            vec![Cmd::Ask {
-                text: trimmed.to_string(),
-            }]
+        let question = agent::is_question(trimmed);
+        let has_key = self.state.settings.has_key();
+        let local = agent::parse(trimmed);
+        let needs_llm = has_key && local.iter().any(|c| matches!(c, Cmd::Ask { .. }));
+
+        if needs_llm {
+            produced.push(Entry::Note("▸ thinking…".into()));
+        }
+
+        let cmds = if needs_llm {
+            if question {
+                vec![Cmd::Ask {
+                    text: trimmed.to_string(),
+                }]
+            } else {
+                self.resolve_cmds(trimmed)
+            }
         } else {
-            self.resolve_cmds(trimmed)
+            local
         };
+        if needs_llm && !question {
+            produced.push(Entry::Note("▸ executing request…".into()));
+        }
         let mut asked = false;
         for cmd in cmds {
             if matches!(cmd, Cmd::Ask { .. }) {
@@ -487,6 +499,194 @@ impl App {
         produced
     }
 
+    /// Live TUI turn: show the `You` line, then run the LLM call on a worker
+    /// thread so the UI keeps rendering while we wait (no thinking indicator).
+    fn exec_line_live(&mut self, trimmed: &str) {
+        self.transcript.push(Entry::You(trimmed.to_string()));
+        self.follow = true;
+        let question = agent::is_question(trimmed);
+
+        if !self.state.settings.has_key() {
+            // No key → offline local execution, no spinner needed.
+            self.run_cmds(agent::parse(trimmed), false);
+            self.award();
+            self.save();
+            return;
+        }
+
+        // The local parser already understands this as concrete commands
+        // (no free-form `Ask`), so run it directly. This avoids the thinking
+        // spinner — and a needless LLM round-trip — for explicit commands like
+        // `exit`, `help`, `stats`, `add "…" to today`, etc.
+        let local = agent::parse(trimmed);
+        let needs_llm = local.iter().any(|c| matches!(c, Cmd::Ask { .. }));
+        if !needs_llm {
+            self.run_cmds(local, false);
+            self.award();
+            self.save();
+            return;
+        }
+
+        // The LLM still does its work on a worker thread (so there's a natural
+        // pause before the reply), but we no longer surface a `▸ thinking…`
+        // step or spinner for it.
+        self.follow = true;
+
+        let (tx, rx) = mpsc::channel();
+        let key = self.state.settings.resolve_key().unwrap();
+        let provider = self.state.settings.provider.clone();
+        let model = self.state.settings.model.clone();
+        let line_owned = trimmed.to_string();
+        let line_for_thread = line_owned.clone();
+        let q = question;
+        let augmented = self.augment(&line_for_thread);
+        std::thread::spawn(move || {
+            let res = if q {
+                crate::llm::chat(&key, &provider, &model, &augmented)
+            } else {
+                crate::llm::complete(&key, &provider, &model, &augmented)
+            };
+            let _ = tx.send(res.map_err(|e| format!("{e:?}")));
+        });
+        self.pending = Some(PendingLlm {
+            rx,
+            line: line_owned,
+            is_question: question,
+        });
+    }
+
+    /// Called every tick from the TUI loop; resolves a finished LLM call.
+    pub fn poll_pending(&mut self) {
+        let pending = match self.pending.take() {
+            Some(p) => p,
+            None => return,
+        };
+        let outcome = match pending.rx.try_recv() {
+            Ok(o) => o,
+            Err(mpsc::TryRecvError::Empty) => {
+                self.pending = Some(pending);
+                return;
+            }
+            Err(_) => {
+                self.thinking = false;
+                return;
+            }
+        };
+        self.thinking = false;
+        if pending.is_question {
+            self.finalize_ask(pending.line, outcome);
+        } else {
+            self.finalize_translate(pending.line, outcome);
+        }
+        self.follow = true;
+        self.award();
+        self.save();
+    }
+
+    /// Execute a batch of commands, emitting the `▸ executing request…` step
+    /// when they came from an LLM translation.
+    fn run_cmds(&mut self, cmds: Vec<Cmd>, used_llm: bool) {
+        if used_llm {
+            self.transcript.push(Entry::Note("▸ executing request…".into()));
+        }
+        let mut asked = false;
+        for cmd in cmds {
+            if matches!(cmd, Cmd::Ask { .. }) {
+                asked = true;
+            }
+            let entries = self.exec_cmd(cmd);
+            self.transcript.extend(entries);
+        }
+        if !asked {
+            self.transcript.push(Entry::Agent(self.agent_summary()));
+        }
+        self.follow = true;
+    }
+
+    /// Finalize a question turn from an LLM chat result.
+    fn finalize_ask(&mut self, text: String, outcome: Result<String, String>) {
+        self.coach_feed.push((true, text.clone()));
+        let reply = match outcome {
+            Ok(r) => r.trim().to_string(),
+            Err(err) => {
+                self.toast(
+                    "AI Coach unavailable",
+                    format!("fell back to offline line ({err:?})"),
+                );
+                format!("[AI offline — {err}] {}", self.data.coach_line(0))
+            }
+        };
+        let full = if self.state.settings.has_key() {
+            reply
+        } else {
+            format!(
+                "{reply}  (offline — `set provider` + `set key` for live AI)"
+            )
+        };
+        self.coach_feed.push((false, full.clone()));
+        self.transcript.push(Entry::Agent(full));
+        self.follow = true;
+    }
+
+    /// Finalize a translation turn: turn the LLM text into commands and run them.
+    fn finalize_translate(&mut self, line: String, outcome: Result<String, String>) {
+        let (cmds, used_llm) = match outcome {
+            Ok(text) => {
+                let mut v = Vec::new();
+                for l in text.lines() {
+                    let l = l.trim();
+                    if !l.is_empty() {
+                        v.extend(agent::parse(l));
+                    }
+                }
+                if v.is_empty() {
+                    (agent::parse(&line), false)
+                } else {
+                    (v, true)
+                }
+            }
+            Err(err) => {
+                self.toast("AI translate failed", format!("{err:?}"));
+                (agent::parse(&line), false)
+            }
+        };
+        self.run_cmds(cmds, used_llm);
+    }
+
+    fn agent_context(&self) -> String {
+        let board = &self.state.board;
+        let mut s = String::new();
+        s.push_str("[context - current board state]\nThe board currently contains these cards (title + column). When the user says \"that card\", \"it\", \"the previous task\", or \"the one I just made\", you MUST replace it with the EXACT title from the list. Never output the literal words that/it/previous/the one I just made as a title. Output only resolved command lines.\n");
+        for col in COLS {
+            let titles: Vec<String> = board.column(col).iter().map(|c| format!("\"{}\"", c.title)).collect();
+            let label = col_label(col);
+            if titles.is_empty() {
+                s.push_str(&format!("- {}: (empty)\n", label));
+            } else {
+                s.push_str(&format!("- {} ({})\n", titles.join(", "), label));
+            }
+        }
+        let recent: Vec<&Entry> = self.transcript.iter().rev().take(6).collect();
+        if !recent.is_empty() {
+            s.push_str("\n[recent activity]\n");
+            for e in recent.iter().rev() {
+                match e {
+                    Entry::You(t) => s.push_str(&format!("user: {t}\n")),
+                    Entry::Agent(t) => s.push_str(&format!("agent: {t}\n")),
+                    Entry::Tool(t) => {
+                        let parts: Vec<String> = t.rows.iter().map(|(k, v)| format!("{k}={v}")).collect();
+                        s.push_str(&format!("tool {}: {}\n", t.name, parts.join(" ")));
+                    }
+                    Entry::Note(t) => s.push_str(&format!("note: {t}\n")),
+                }
+            }
+        }
+        s
+    }
+
+    fn augment(&self, line: &str) -> String {
+        format!("{}\n\nRequest: {}", self.agent_context(), line)
+    }
     /// Resolve a prompt into commands. With a provider key set, the configured
     /// model translates the request into local commands; otherwise we fall back
     /// to the built-in rule-based parser.
@@ -497,7 +697,7 @@ impl App {
                     &key,
                     &self.state.settings.provider,
                     &self.state.settings.model,
-                    line,
+                    &self.augment(line),
                 ) {
                     Ok(text) => {
                         let mut cmds = Vec::new();
@@ -738,15 +938,11 @@ impl App {
                         .kv("sessions", s.sessions.to_string())
                         .kv("streak", format!("{}d", s.streak))
                         .kv("all time", fmt_minutes(self.state.totals.minutes))
-                        .kv("level", format!("{} ({} xp)", self.level(), self.state.xp))
-                        .kv("plan", tier_label(&self.state.tier)),
+                        .kv("level", format!("{} ({} xp)", self.level(), self.state.xp)),
                 ));
             }
             Cmd::Template { name } => {
-                if !self.state.tier_ok("pro") {
-                    out.push(self.locked_tool("pomocard.template.load", "pro"));
-                } else {
-                    match self.data.find_template(&name) {
+                match self.data.find_template(&name) {
                         Some(t) => {
                             let t = t.clone();
                             for col in COLS {
@@ -783,31 +979,6 @@ impl App {
                             ));
                         }
                     }
-                }
-            }
-            Cmd::Upgrade { tier } => {
-                let tier = match tier.as_str() {
-                    "team" => "team",
-                    "pro" => "pro",
-                    _ => "free",
-                };
-                self.state.tier = tier.to_string();
-                if tier != "free" {
-                    let mut acc = self.state.account.clone().unwrap_or(Account {
-                        name: "Focused Friend".into(),
-                        email: "you@studio.com".into(),
-                        plan: tier.to_string(),
-                    });
-                    acc.plan = tier.to_string();
-                    self.state.account = Some(acc);
-                }
-                out.push(Entry::Tool(
-                    ToolCall::new("pomocard.plan.set")
-                        .kv("plan", tier_label(tier))
-                        .kv("price", tier_price(tier))
-                        .kv("result", "demo unlock — no payment taken"),
-                ));
-                self.toast(format!("{} unlocked", tier_label(tier)), "Demo mode");
             }
             Cmd::Theme { theme } => {
                 let next = match theme.as_str() {
@@ -829,17 +1000,10 @@ impl App {
             Cmd::Set { key, value } => out.push(Entry::Tool(self.apply_setting(&key, &value))),
             Cmd::View { name } => match View::from_slug(&name) {
                 Some(v) => {
-                    let locked = self.locked(v);
                     self.go(v);
-                    let mut tool = ToolCall::new("pomocard.view").kv("view", v.title());
-                    if let Some(need) = locked {
-                        tool = tool
-                            .kv("locked", format!("{} required", tier_label(need)))
-                            .failed();
-                    } else {
-                        tool = tool.kv("result", "opened");
-                    }
-                    out.push(Entry::Tool(tool));
+                    out.push(Entry::Tool(
+                        ToolCall::new("pomocard.view").kv("view", v.title()).kv("result", "opened"),
+                    ));
                 }
                 None => out.push(Entry::Tool(
                     ToolCall::new("pomocard.view")
@@ -852,12 +1016,7 @@ impl App {
                 out.push(Entry::Tool(
                     ToolCall::new("pomocard.sync")
                         .kv("target", self.path.display().to_string())
-                        .kv("account", self
-                            .state
-                            .account
-                            .as_ref()
-                            .map(|a| a.email.clone())
-                            .unwrap_or_else(|| "local only".into()))
+                        .kv("account", "local only")
                         .kv("result", "all changes saved"),
                 ));
             }
@@ -898,7 +1057,7 @@ impl App {
                             &key,
                             &self.state.settings.provider,
                             &self.state.settings.model,
-                            &text,
+                            &self.augment(&text),
                         ) {
                             Ok(r) => r.trim().to_string(),
                             Err(err) => {
@@ -918,41 +1077,18 @@ impl App {
                     self.data.coach_line(n)
                 };
 
-                let insight = self
-                    .data
-                    .insights
-                    .insights
-                    .get(n % self.data.insights.insights.len().max(1))
-                    .cloned()
-                    .unwrap_or_default();
-                let full = if self.state.tier_ok("pro") {
-                    if insight.is_empty() {
-                        reply
-                    } else {
-                        format!("{reply} {insight}")
-                    }
-                } else if self.state.settings.has_key() {
-                    // BYOK users already have a real model wired up — let the
-                    // reply stand on its own instead of nagging about Pro.
+                let full = if self.state.settings.has_key() {
                     reply
                 } else {
-                    format!("{reply} (AI Coach insights are a Pro feature — try `upgrade pro`.)")
+                    format!(
+                        "{reply}  (offline — `set provider` + `set key` for live AI)"
+                    )
                 };
                 self.coach_feed.push((false, full.clone()));
                 out.push(Entry::Agent(full));
             }
         }
         out
-    }
-
-    fn locked_tool(&self, name: &str, need: &str) -> Entry {
-        Entry::Tool(
-            ToolCall::new(name)
-                .kv("locked", format!("{} feature", tier_label(need)))
-                .kv("price", tier_price(need))
-                .kv("hint", format!("run: upgrade {need}"))
-                .failed(),
-        )
     }
 
     fn apply_setting(&mut self, key: &str, value: &str) -> ToolCall {
@@ -1071,18 +1207,9 @@ impl App {
                     .kv("model", self.state.settings.model.clone())
                     .kv("result", "saved")
             }
-            "plan" | "tier" => {
-                let tier = match v.as_str() {
-                    "team" => "team",
-                    "pro" => "pro",
-                    _ => "free",
-                };
-                self.state.tier = tier.into();
-                ToolCall::new("pomocard.plan.set").kv("plan", tier_label(tier)).kv("result", "saved")
-            }
             _ => ToolCall::new("pomocard.settings")
                 .kv("key", key.to_string())
-                .kv("known", "focus · short · long · auto · chime · ambient · theme · plan · provider · key · model")
+                .kv("known", "focus · short · long · auto · chime · ambient · theme · provider · key · model")
                 .kv("error", "unknown setting")
                 .failed(),
         }

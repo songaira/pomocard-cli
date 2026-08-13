@@ -85,8 +85,9 @@ app. Default path: `~/.pomocard/pomocard.v2.json`
 ## Views
 
 `Tab` cycles: Agent · Board · Analytics · AI Coach · Templates · Team ·
-Billing · Settings. Pro/Team views render a blurred paywall overlay when the
-account tier is too low.
+Billing · Settings. Every view is open — there are no plans or paywalls. AI
+features (the AI Coach answers and natural-language agent translation) use
+your own API key; without one the CLI runs fully offline on its local parser.
 
 ## Key bindings
 
@@ -103,7 +104,7 @@ account tier is too low.
 `start/begin/resume`, `pause/stop`, `reset`, `skip/next`, `break`,
 `add/create/capture/drop/put`, `move/push/send`, `finish/complete/ship`,
 `delete/remove`, `pin`, `rename`, `estimate`, `clear done`, `list/board`,
-`stats/status/streak`, `template/routine/seed`, `upgrade/subscribe`, `theme`,
+`stats/status/streak`, `template/routine/seed`, `theme`,
 `set <key> <value>`, `open <view>`, `sync`, `export`, `help`, `quit`.
 
 ## Free AI (BYOK, multi-provider)

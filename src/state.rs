@@ -84,6 +84,21 @@ pub struct Settings {
 }
 
 impl Settings {
+    /// Strip a single pair of surrounding single/double quotes (and any
+    /// surrounding whitespace) from a key value. Users often paste keys
+    /// wrapped in quotes (or the prompt includes them), and sending the
+    /// literal quotes to a provider makes every request fail auth.
+    fn clean_key(value: &str) -> String {
+        let t = value.trim();
+        let chars: Vec<char> = t.chars().collect();
+        if chars.len() >= 2
+            && ((chars[0] == '"' && chars[chars.len() - 1] == '"')
+                || (chars[0] == '\'' && chars[chars.len() - 1] == '\''))
+        {
+            return t[1..chars.len() - 1].trim().to_string();
+        }
+        t.to_string()
+    }
     /// The key for the currently selected provider, if any.
     pub fn resolve_key(&self) -> Option<String> {
         let k = match self.provider.as_str() {
@@ -93,16 +108,16 @@ impl Settings {
             "xai" | "spacexai" => self.xai_key.as_ref(),
             _ => self.openrouter_key.as_ref(),
         };
-        k.cloned()
+        k.cloned().map(|s| Self::clean_key(&s))
     }
 
     /// Set/clear the key for the currently selected provider. An empty value
     /// clears it.
     pub fn set_key_for_provider(&mut self, value: String) {
-        let v = if value.trim().is_empty() {
+        let v = if Self::clean_key(&value).is_empty() {
             None
         } else {
-            Some(value)
+            Some(Self::clean_key(&value))
         };
         match self.provider.as_str() {
             "openai" => self.openai_key = v,
@@ -203,16 +218,6 @@ pub struct HistoryDay {
 pub struct Achievement {
     pub id: String,
     pub name: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Account {
-    #[serde(default)]
-    pub name: String,
-    #[serde(default)]
-    pub email: String,
-    #[serde(default)]
-    pub plan: String,
 }
 
 /* ---------------- board ---------------- */
@@ -341,10 +346,6 @@ pub struct State {
     #[serde(default)]
     pub board: Board,
     #[serde(default)]
-    pub account: Option<Account>,
-    #[serde(default = "d_tier")]
-    pub tier: String,
-    #[serde(default)]
     pub totals: Totals,
     #[serde(default)]
     pub achievements: Vec<Achievement>,
@@ -362,9 +363,6 @@ pub struct State {
 fn d_theme() -> String {
     "dark".into()
 }
-fn d_tier() -> String {
-    "free".into()
-}
 
 impl Default for State {
     fn default() -> Self {
@@ -375,8 +373,6 @@ impl Default for State {
             active_id: None,
             stats: Stats::default(),
             board: Board::default(),
-            account: None,
-            tier: d_tier(),
             totals: Totals::default(),
             achievements: Vec::new(),
             xp: 0,
@@ -384,30 +380,6 @@ impl Default for State {
             ambient: None,
             extra: Map::new(),
         }
-    }
-}
-
-pub fn tier_rank(tier: &str) -> u8 {
-    match tier {
-        "pro" => 1,
-        "team" => 2,
-        _ => 0,
-    }
-}
-
-pub fn tier_label(tier: &str) -> &'static str {
-    match tier {
-        "pro" => "Pro",
-        "team" => "Team",
-        _ => "Free",
-    }
-}
-
-pub fn tier_price(tier: &str) -> &'static str {
-    match tier {
-        "pro" => "$6/mo",
-        "team" => "$12/user/mo",
-        _ => "$0",
     }
 }
 
@@ -429,10 +401,6 @@ impl State {
             Card::new("Pick monochrome palette", 1),
         ];
         s
-    }
-
-    pub fn tier_ok(&self, need: &str) -> bool {
-        tier_rank(&self.tier) >= tier_rank(need)
     }
 
     pub fn active_card(&self) -> Option<&Card> {

@@ -71,7 +71,6 @@ pub const PROMPT: &str = "❯";
 pub const AGENT: &str = "◆";
 pub const DOT_ON: &str = "●";
 pub const DOT_OFF: &str = "○";
-pub const LOCK: &str = "▒";
 pub const STAR: &str = "★";
 pub const BAR: &str = "│";
 pub const HEAT: [&str; 5] = ["·", "░", "▒", "▓", "█"];

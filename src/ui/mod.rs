@@ -8,7 +8,6 @@ use ratatui::widgets::{Block, BorderType, Clear, Paragraph, Wrap};
 
 use crate::agent::Entry;
 use crate::app::{App, InputMode, View};
-use crate::state::{tier_label, tier_price};
 use crate::theme::{self, Theme};
 
 pub fn draw(f: &mut Frame, app: &App) {
@@ -20,7 +19,7 @@ pub fn draw(f: &mut Frame, app: &App) {
         .border_type(BorderType::Rounded)
         .border_style(th.border())
         .style(th.base())
-        .title(title_line(app, &th))
+        .title(title_line(&th))
         .title_bottom(hint_line(app, &th).right_aligned());
     let inner = outer.inner(area);
     f.render_widget(outer, area);
@@ -46,18 +45,15 @@ pub fn draw(f: &mut Frame, app: &App) {
     );
 
     let body = rows[3];
-    match app.locked(app.view) {
-        Some(need) => views::locked(f, app, body, &th, need),
-        None => match app.view {
-            View::Agent => views::agent(f, app, body, &th),
-            View::Board => views::board(f, app, body, &th),
-            View::Analytics => views::analytics(f, app, body, &th),
-            View::Coach => views::coach(f, app, body, &th),
-            View::Templates => views::templates(f, app, body, &th),
-            View::Team => views::team(f, app, body, &th),
-            View::Billing => views::billing(f, app, body, &th),
-            View::Settings => views::settings(f, app, body, &th),
-        },
+    match app.view {
+        View::Agent => views::agent(f, app, body, &th),
+        View::Board => views::board(f, app, body, &th),
+        View::Analytics => views::analytics(f, app, body, &th),
+        View::Coach => views::coach(f, app, body, &th),
+        View::Templates => views::templates(f, app, body, &th),
+        View::Team => views::team(f, app, body, &th),
+        View::Billing => views::billing(f, app, body, &th),
+        View::Settings => views::settings(f, app, body, &th),
     }
 
     prompt(f, app, rows[4], &th);
@@ -73,12 +69,10 @@ pub fn draw(f: &mut Frame, app: &App) {
     }
 }
 
-fn title_line<'a>(app: &App, th: &Theme) -> Line<'a> {
-    let plan = tier_label(&app.state.tier);
+fn title_line<'a>(th: &'a Theme) -> Line<'a> {
     Line::from(vec![
         Span::styled(" ● ● ●  ", th.dim()),
         Span::styled("pomocard agent", th.bold()),
-        Span::styled(format!("  ·  {plan} plan "), th.dim()),
     ])
 }
 
@@ -95,19 +89,8 @@ fn tabs(f: &mut Frame, app: &App, area: Rect, th: &Theme) {
     for (i, v) in View::ALL.iter().enumerate() {
         let active = *v == app.view;
         let label = format!(" {} {} ", i + 1, v.title());
-        let style = if active {
-            th.inverse()
-        } else if app.locked(*v).is_some() {
-            th.faint()
-        } else {
-            th.dim()
-        };
+        let style = if active { th.inverse() } else { th.dim() };
         spans.push(Span::styled(label, style));
-        if let Some(need) = v.tier() {
-            if app.locked(*v).is_some() {
-                spans.push(Span::styled(format!("{}·", tier_label(need).to_lowercase()), th.faint()));
-            }
-        }
         spans.push(Span::styled(" ", th.base()));
     }
     f.render_widget(Paragraph::new(Line::from(spans)), area);
@@ -148,24 +131,32 @@ fn status(f: &mut Frame, app: &App, area: Rect, th: &Theme) {
 }
 
 fn prompt(f: &mut Frame, app: &App, area: Rect, th: &Theme) {
-    let line = match app.mode {
-        InputMode::Prompt => {
-            let (before, after) = split_at_cursor(&app.input, app.cursor);
-            let (cursor_char, rest) = take_first(&after);
-            Line::from(vec![
-                Span::styled(format!("{} ", theme::PROMPT), th.bold()),
-                Span::styled(before, th.base()),
-                Span::styled(cursor_char, th.inverse()),
-                Span::styled(rest, th.base()),
-            ])
+    let line = if app.thinking {
+        let spinner = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧'][(app.tick_count as usize) % 8];
+        Line::from(vec![
+            Span::styled(format!("{} ", theme::PROMPT), th.bold()),
+            Span::styled(format!("{spinner} thinking"), th.bold()),
+        ])
+    } else {
+        match app.mode {
+            InputMode::Prompt => {
+                let (before, after) = split_at_cursor(&app.input, app.cursor);
+                let (cursor_char, rest) = take_first(&after);
+                Line::from(vec![
+                    Span::styled(format!("{} ", theme::PROMPT), th.bold()),
+                    Span::styled(before, th.base()),
+                    Span::styled(cursor_char, th.inverse()),
+                    Span::styled(rest, th.base()),
+                ])
+            }
+            InputMode::Normal => Line::from(vec![
+                Span::styled(format!("{} ", theme::PROMPT), th.dim()),
+                Span::styled(
+                    "normal mode — i to talk to the agent, ? for keys".to_string(),
+                    th.faint(),
+                ),
+            ]),
         }
-        InputMode::Normal => Line::from(vec![
-            Span::styled(format!("{} ", theme::PROMPT), th.dim()),
-            Span::styled(
-                "normal mode — i to talk to the agent, ? for keys".to_string(),
-                th.faint(),
-            ),
-        ]),
     };
     f.render_widget(Paragraph::new(line), area);
 }
@@ -262,7 +253,7 @@ fn help(f: &mut Frame, area: Rect, th: &Theme) {
         k("i / Enter", "focus the agent prompt (Esc leaves)"),
         k("Tab / 1-8", "switch views"),
         k("^K", "command palette"),
-        k("T · u", "toggle theme · upgrade plan (demo)"),
+        k("T", "toggle theme"),
         k("PgUp/PgDn", "scroll the transcript"),
         k("q / ^C", "quit (state is saved)"),
         Line::raw(""),
@@ -276,7 +267,7 @@ fn help(f: &mut Frame, area: Rect, th: &Theme) {
             th.dim(),
         ),
         Line::styled(
-            "  load the thesis template · stats · upgrade pro · set focus 50".to_string(),
+            "  load the thesis template · stats · set focus 50".to_string(),
             th.dim(),
         ),
     ];
@@ -404,15 +395,6 @@ pub fn wrapped_len(lines: &[Line<'_>], width: u16) -> usize {
         .sum()
 }
 
-pub fn tier_note(need: &str) -> String {
-    format!(
-        "{} feature — upgrade to {} ({}) to use this.",
-        tier_label(need),
-        tier_label(need),
-        tier_price(need)
-    )
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -421,11 +403,10 @@ mod tests {
     use ratatui::backend::TestBackend;
     use ratatui::Terminal;
 
-    fn test_app(tier: &str) -> App {
+    fn test_app() -> App {
         let path = std::env::temp_dir().join("pomocard-render-test.json");
         let _ = std::fs::remove_file(&path);
         let mut app = App::new(path, Data::embedded()).expect("app boots");
-        app.state.tier = tier.to_string();
         app.state.stats.minutes = 125;
         app.state.stats.sessions = 5;
         app.state.stats.streak = 4;
@@ -459,8 +440,8 @@ mod tests {
     }
 
     #[test]
-    fn renders_every_view_unlocked() {
-        let mut app = test_app("team");
+    fn renders_every_view() {
+        let mut app = test_app();
         for view in View::ALL {
             app.view = view;
             let frame = render(&app, 140, 40);
@@ -470,17 +451,8 @@ mod tests {
     }
 
     #[test]
-    fn renders_paywall_for_free_tier() {
-        let mut app = test_app("free");
-        app.view = View::Analytics;
-        let frame = render(&app, 120, 32);
-        assert!(frame.contains("Pro feature"), "paywall missing:\n{frame}");
-        println!("{frame}");
-    }
-
-    #[test]
     fn renders_overlays_and_tiny_terminals() {
-        let mut app = test_app("pro");
+        let mut app = test_app();
         app.palette = Some(Palette {
             query: "board".into(),
             sel: 0,

@@ -8,9 +8,9 @@ use ratatui::widgets::{Block, BorderType, Paragraph, Wrap};
 
 use crate::app::{bool_label, App};
 use crate::data::initials;
-use crate::state::{col_label, fmt_minutes, tier_label, tier_price, COLS};
+use crate::state::{col_label, fmt_minutes, COLS};
 use crate::theme::{self, Theme};
-use crate::ui::{transcript_lines, tier_note, truncate, wrapped_len};
+use crate::ui::{transcript_lines, truncate, wrapped_len};
 
 fn panel<'a>(title: &'a str, th: &Theme) -> Block<'a> {
     let block = Block::bordered()
@@ -706,34 +706,33 @@ pub fn team(f: &mut Frame, app: &App, area: Rect, th: &Theme) {
 /* ---------------- billing ---------------- */
 
 pub fn billing(f: &mut Frame, app: &App, area: Rect, th: &Theme) {
-    let block = panel("billing & seats · demo, no charges", th);
+    let block = panel("billing · free, local & BYOK", th);
     let inner = block.inner(area);
     f.render_widget(block, area);
-    let mut lines: Vec<Line> = Vec::new();
-    for m in &app.data.team.members {
-        let ini = if m.initials.is_empty() {
-            initials(&m.name)
-        } else {
-            m.initials.clone()
-        };
-        lines.push(Line::from(vec![
-            Span::styled(format!(" {ini} "), th.inverse()),
-            Span::styled(format!(" {:<20}", m.name), th.base()),
-            Span::styled(format!("{:<10}", m.role), th.dim()),
-            Span::styled("$12/mo".to_string(), th.base()),
-        ]));
-    }
-    let seats = app.data.team.members.len();
-    lines.push(Line::raw(""));
-    lines.push(Line::from(vec![
-        Span::styled(format!(" {seats} seats × $12"), th.dim()),
-        Span::styled(format!("   ${}/mo", seats * 12), th.bold()),
-    ]));
-    lines.push(Line::styled(
-        " Billed monthly · cancel anytime · this build never calls a payment API.".to_string(),
-        th.faint(),
-    ));
-    f.render_widget(Paragraph::new(lines), inner);
+    let s = &app.state.settings;
+    let mut lines: Vec<Line> = vec![
+        Line::styled(" The CLI is free and runs entirely on your machine.", th.base()),
+        Line::styled(" There are no plans, seats, or payments — this build never", th.dim()),
+        Line::styled(" calls a billing API.", th.dim()),
+        Line::raw(""),
+        Line::styled(" AI features are bring-your-own-key:", th.bold()),
+        kv_line("provider", s.provider.clone(), th),
+        kv_line("ai model", s.model.clone(), th),
+        kv_line(
+            "api key",
+            match s.resolve_key() {
+                None => "not set — AI runs offline".to_string(),
+                Some(k) if k.trim().is_empty() => "not set — AI runs offline".to_string(),
+                Some(k) if k.len() <= 8 => "set (hidden)".to_string(),
+                Some(k) => format!("{}…{}", &k[..4], &k[k.len() - 4..]),
+            },
+            th,
+        ),
+        Line::raw(""),
+        Line::styled(" set key sk-or-... · set model qwen/qwen3-8b:free", th.faint()),
+    ];
+    lines.truncate(inner.height as usize);
+    f.render_widget(Paragraph::new(lines).wrap(Wrap { trim: false }), inner);
 }
 
 /* ---------------- settings ---------------- */
@@ -760,26 +759,10 @@ pub fn settings(f: &mut Frame, app: &App, area: Rect, th: &Theme) {
     ];
     f.render_widget(Paragraph::new(lines), inner);
 
-    let block = panel("account, plan & ambient", th);
+    let block = panel("local account & AI", th);
     let inner = block.inner(left[1]);
     f.render_widget(block, left[1]);
-    let account = app
-        .state
-        .account
-        .as_ref()
-        .map(|a| format!("{} <{}>", a.name, a.email))
-        .unwrap_or_else(|| "not signed in — data stays local".into());
     let mut lines = vec![
-        kv_line("account", account, th),
-        kv_line(
-            "plan",
-            format!(
-                "{} ({})",
-                tier_label(&app.state.tier),
-                tier_price(&app.state.tier)
-            ),
-            th,
-        ),
         kv_line("state file", app.path.display().to_string(), th),
         kv_line("provider", s.provider.clone(), th),
         kv_line("ai model", s.model.clone(), th),
@@ -810,7 +793,7 @@ pub fn settings(f: &mut Frame, app: &App, area: Rect, th: &Theme) {
             th.faint(),
         ),
         Line::raw(""),
-        Line::styled(" u cycles the demo plan · sync writes the JSON now".to_string(), th.dim()),
+        Line::styled(" sync writes the JSON now", th.dim()),
         Line::styled(" ai: set key sk-or-... · set model qwen/qwen3-8b:free".to_string(), th.faint()),
     ];
     lines.truncate(inner.height as usize);
@@ -849,49 +832,4 @@ pub fn settings(f: &mut Frame, app: &App, area: Rect, th: &Theme) {
         })
         .collect();
     f.render_widget(Paragraph::new(lines), rows[1]);
-}
-
-/* ---------------- paywall ---------------- */
-
-pub fn locked(f: &mut Frame, app: &App, area: Rect, th: &Theme, need: &str) {
-    let block = panel(app.view.title(), th);
-    let inner = block.inner(area);
-    f.render_widget(block, area);
-
-    // "blurred" skeleton of the real surface
-    let mut lines: Vec<Line> = Vec::new();
-    for i in 0..inner.height {
-        let width = inner.width.saturating_sub(4) as usize;
-        let fill = match i % 4 {
-            0 => width * 3 / 4,
-            1 => width / 2,
-            2 => width * 5 / 8,
-            _ => width / 3,
-        };
-        lines.push(Line::styled(
-            format!("  {}", theme::LOCK.repeat(fill.max(1))),
-            th.faint(),
-        ));
-    }
-    f.render_widget(Paragraph::new(lines), inner);
-
-    let rect = crate::ui::centered(inner, 56, 7);
-    f.render_widget(ratatui::widgets::Clear, rect);
-    let block = Block::bordered()
-        .border_type(BorderType::Rounded)
-        .border_style(th.border())
-        .style(th.base());
-    let lock_inner = block.inner(rect);
-    f.render_widget(block, rect);
-    f.render_widget(
-        Paragraph::new(vec![
-            Line::styled(format!("{} {} feature", theme::LOCK, tier_label(need)), th.bold()),
-            Line::raw(""),
-            Line::styled(tier_note(need), th.dim()),
-            Line::styled(format!("type: upgrade {need}"), th.base()),
-        ])
-        .alignment(Alignment::Center)
-        .wrap(Wrap { trim: true }),
-        lock_inner,
-    );
 }
