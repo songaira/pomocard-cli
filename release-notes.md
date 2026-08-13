@@ -1,16 +1,13 @@
-## pomocard-cli v0.4.0
+## pomocard-cli v0.4.1
 
-Customizable agent persona.
+Bug fix for agent persona.
 
-### New: agent persona
-- `set agent persona warm | cold | stoic | chaotic | balanced` — flavors the AI Coach
-  voice and the agent summary sign-off (default `balanced`).
-- `set agent prompt <text>` — full system-prompt hotswap: `<text>` becomes the agent's
-  own system prompt, replacing the built-in coach prompt entirely.
-- `set agent reset` — back to `balanced`.
-- Persona is stored locally and only affects tone. It never changes how commands are
-  parsed, so the command translator stays strictly formatted.
+### Fixed
+- `set agent persona <x>` now clears any previously-set custom prompt, so the
+  preset actually takes effect. Before this fix a lingering `set agent prompt <text>`
+  would silently override the persona (e.g. `warm` kept replying as the old custom
+  voice). Persona presets and custom prompts are now mutually exclusive.
 
 ### Notes
-Builds on v0.3.0 (removed the tier gate, gated AI on your API key, fixed Google key
-case-sensitivity, capped LLM output tokens to 1024, edition 2024).
+Builds on v0.4.0 (customizable agent persona: `set agent persona warm|cold|stoic|
+chaotic|balanced`, `set agent prompt <text>` hotswap, `set agent reset`).

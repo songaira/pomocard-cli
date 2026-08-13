@@ -1,6 +1,6 @@
 [package]
 name = "pomocard-cli"
-version = "0.4.0"
+version = "0.4.1"
 edition = "2024"
 rust-version = "1.85"
 description = "Pomocard TUI — a strictly monochrome terminal wrapper around the Pomocard focus workspace (Pomodoro + Kanban), built with ratatui."

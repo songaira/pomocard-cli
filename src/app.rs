@@ -1212,7 +1212,10 @@ impl App {
                                 .failed();
                         }
                         let p = sp[1].to_lowercase();
+                        // Switching to a preset clears any custom prompt so the
+                        // persona actually takes effect (they are mutually exclusive).
                         self.state.settings.agent_persona = p.clone();
+                        self.state.settings.agent_custom_prompt = None;
                         ToolCall::new("pomocard.agent")
                             .kv("persona", p)
                             .kv("result", "applied")
