@@ -141,4 +141,22 @@ With a key set, natural-language input is translated by the model into the same 
 commands (e.g. `add "X" to today`), then executed on your board. The AI Coach view
 (`Ask`/free-text questions) replies with the real model output instead of the bundled
 offline coach lines.
+### Agent persona
+
+The agent's voice is customizable (coach replies + summary sign-off). It never
+changes how commands are parsed. Presets:
+
+| `set agent …` | effect |
+| --- | --- |
+| `set agent persona warm` | encouraging, playful |
+| `set agent persona cold` | blunt, terse |
+| `set agent persona stoic` | calm, measured |
+| `set agent persona chaotic` | energetic, unpredictable |
+| `set agent persona balanced` | default, neutral |
+| `set agent prompt <text>` | hotswap: use `<text>` as the agent's own system prompt |
+| `set agent reset` | back to `balanced` |
+
+`prompt` replaces the coach system prompt entirely — paste your own, or have the
+model derive one from a description you give.
+
 

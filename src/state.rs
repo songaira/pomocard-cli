@@ -81,6 +81,15 @@ pub struct Settings {
     /// SpaceXAI (formerly xAI) API key (`xai-...`). Used when `provider = xai`.
     #[serde(default)]
     pub xai_key: Option<String>,
+    /// Agent persona for the AI Coach voice + summary sign-off: "balanced"
+    /// (default), "warm", "cold", "stoic", "chaotic". Purely flavors tone;
+    /// the command translator stays strictly formatted.
+    #[serde(default = "d_persona")]
+    pub agent_persona: String,
+    /// Custom system-prompt hotswap for the agent. When set (and non-empty) it
+    /// fully replaces the coach system prompt, regardless of `agent_persona`.
+    #[serde(default)]
+    pub agent_custom_prompt: Option<String>,
 }
 
 impl Settings {
@@ -134,6 +143,17 @@ impl Settings {
             .map(|k| !k.trim().is_empty())
             .unwrap_or(false)
     }
+
+    /// Short persona-flavored sign-off appended to the agent's summary line.
+    pub fn persona_tail(&self) -> &'static str {
+        match self.agent_persona.trim().to_lowercase().as_str() {
+            "warm" => "Nice work — keep the momentum going.",
+            "cold" => "Done. Queue the next block.",
+            "stoic" => "The work is the reward. Onward.",
+            "chaotic" => "Next block, same energy.",
+            _ => "",
+        }
+    }
 }
 
 fn d_focus() -> u32 {
@@ -159,6 +179,10 @@ fn d_provider() -> String {
     "openrouter".into()
 }
 
+fn d_persona() -> String {
+    "balanced".into()
+}
+
 impl Default for Settings {
     fn default() -> Self {
         Settings {
@@ -175,6 +199,8 @@ impl Default for Settings {
             anthropic_key: None,
             google_key: None,
             xai_key: None,
+            agent_persona: d_persona(),
+            agent_custom_prompt: None,
         }
     }
 }

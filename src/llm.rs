@@ -265,12 +265,42 @@ pub fn complete(key: &str, provider: &str, model: &str, user: &str) -> Result<St
 }
 
 /// Conversational AI Coach reply for the `Ask` branch.
-pub fn chat(key: &str, provider: &str, model: &str, user: &str) -> Result<String> {
+/// Build the effective AI Coach system prompt. A custom prompt (hotswap)
+/// fully replaces the base; otherwise an optional persona flavor is appended.
+pub fn coach_system(persona: &str, custom: Option<&str>) -> String {
+    if let Some(c) = custom {
+        let c = c.trim();
+        if !c.is_empty() {
+            return c.to_string();
+        }
+    }
+    let flavor = match persona.trim().to_lowercase().as_str() {
+        "warm" => " You are warm and encouraging, with a little playful energy — celebrate small wins.",
+        "cold" => " You are blunt and terse: no filler, no flattery, just the useful answer.",
+        "stoic" => " You are calm and measured, focused on the work itself rather than praise.",
+        "chaotic" => " You are energetic and a little unpredictable in tone, but always on-point.",
+        _ => "",
+    };
+    if flavor.is_empty() {
+        COACH_SYSTEM.to_string()
+    } else {
+        format!("{COACH_SYSTEM}{flavor}")
+    }
+}
+
+pub fn chat(
+    key: &str,
+    provider: &str,
+    model: &str,
+    user: &str,
+    persona: &str,
+    custom: Option<&str>,
+) -> Result<String> {
     request(
         &Provider::parse(provider),
         key,
         model,
-        COACH_SYSTEM,
+        &coach_system(persona, custom),
         user,
         0.7,
     )

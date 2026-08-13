@@ -719,6 +719,24 @@ mod tests {
     }
 
     #[test]
+    fn set_agent_preserves_case_and_subkey() {
+        match parse_clause("set agent prompt KeepMyCASE and tone") {
+            Cmd::Set { key, value } => {
+                assert_eq!(key, "agent");
+                assert_eq!(value, "prompt KeepMyCASE and tone");
+            }
+            other => panic!("expected Set, got {other:?}"),
+        }
+        match parse_clause("set agent persona warm") {
+            Cmd::Set { key, value } => {
+                assert_eq!(key, "agent");
+                assert_eq!(value, "persona warm");
+            }
+            other => panic!("expected Set, got {other:?}"),
+        }
+    }
+
+    #[test]
     fn unknown_text_goes_to_the_coach() {
         match parse_clause("why do I keep losing focus after lunch") {
             Cmd::Ask { .. } => {}

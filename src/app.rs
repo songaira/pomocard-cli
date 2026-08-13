@@ -254,7 +254,12 @@ impl App {
         } else {
             "Queue the next block?".to_string()
         };
-        format!("{}. {}", self.headline(), tail)
+        let persona = self.state.settings.persona_tail();
+        if persona.is_empty() {
+            format!("{}. {}", self.headline(), tail)
+        } else {
+            format!("{}. {}. {}", self.headline(), tail, persona)
+        }
     }
 
     /* ---------------- timer plumbing ---------------- */
@@ -540,9 +545,18 @@ impl App {
         let line_for_thread = line_owned.clone();
         let q = question;
         let augmented = self.augment(&line_for_thread);
+        let agent_persona = self.state.settings.agent_persona.clone();
+        let agent_custom = self.state.settings.agent_custom_prompt.clone();
         std::thread::spawn(move || {
             let res = if q {
-                crate::llm::chat(&key, &provider, &model, &augmented)
+                crate::llm::chat(
+                    &key,
+                    &provider,
+                    &model,
+                    &augmented,
+                    &agent_persona,
+                    agent_custom.as_deref(),
+                )
             } else {
                 crate::llm::complete(&key, &provider, &model, &augmented)
             };
@@ -1058,6 +1072,8 @@ impl App {
                             &self.state.settings.provider,
                             &self.state.settings.model,
                             &self.augment(&text),
+                            &self.state.settings.agent_persona,
+                            self.state.settings.agent_custom_prompt.as_deref(),
                         ) {
                             Ok(r) => r.trim().to_string(),
                             Err(err) => {
@@ -1176,6 +1192,55 @@ impl App {
                         if self.state.settings.has_key() { "set (hidden)" } else { "cleared" },
                     )
                     .kv("result", "saved")
+            }
+            "agent" => {
+                let v = value.trim();
+                let sp: Vec<&str> = v.split_whitespace().collect();
+                if sp.is_empty() {
+                    return ToolCall::new("pomocard.agent")
+                        .kv(
+                            "error",
+                            "usage: set agent persona <warm|cold|stoic|chaotic|balanced> | set agent prompt <text> | set agent reset",
+                        )
+                        .failed();
+                }
+                match sp[0] {
+                    "persona" => {
+                        if sp.len() < 2 {
+                            return ToolCall::new("pomocard.agent")
+                                .kv("error", "usage: set agent persona <warm|cold|stoic|chaotic|balanced>")
+                                .failed();
+                        }
+                        let p = sp[1].to_lowercase();
+                        self.state.settings.agent_persona = p.clone();
+                        ToolCall::new("pomocard.agent")
+                            .kv("persona", p)
+                            .kv("result", "applied")
+                    }
+                    "prompt" => {
+                        let txt = sp[1..].join(" ");
+                        if txt.trim().is_empty() {
+                            return ToolCall::new("pomocard.agent")
+                                .kv("error", "usage: set agent prompt <your system prompt>")
+                                .failed();
+                        }
+                        self.state.settings.agent_custom_prompt = Some(txt);
+                        ToolCall::new("pomocard.agent")
+                            .kv("persona", "custom")
+                            .kv("prompt", "set (hidden)")
+                            .kv("result", "hotswapped")
+                    }
+                    "reset" => {
+                        self.state.settings.agent_persona = "balanced".into();
+                        self.state.settings.agent_custom_prompt = None;
+                        ToolCall::new("pomocard.agent")
+                            .kv("persona", "balanced")
+                            .kv("result", "reset")
+                    }
+                    _ => ToolCall::new("pomocard.agent")
+                        .kv("error", "unknown agent subcommand (persona|prompt|reset)")
+                        .failed(),
+                }
             }
             "model" => {
                 let v = value.trim();
